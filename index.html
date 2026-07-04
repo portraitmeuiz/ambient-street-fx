@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>Street → Ambient FX</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b0e14">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ambient FX">
+<style>
+  :root{
+    --bg1:#0b0e14; --bg2:#141a24; --accent:#7fd9ff; --accent2:#c792ea;
+    --text:#dfe6ee; --muted:#7b8794; --panel:#161c26cc; --border:#26303d;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html{ height:100%; }
+  body{
+    margin:0; min-height:100vh; min-height:100dvh; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    background:radial-gradient(circle at 20% 10%, #1b2534 0%, var(--bg1) 45%, #05070a 100%);
+    color:var(--text); display:flex; flex-direction:column; align-items:center;
+    padding:calc(env(safe-area-inset-top) + 24px) calc(env(safe-area-inset-right) + 16px)
+            calc(env(safe-area-inset-bottom) + 48px) calc(env(safe-area-inset-left) + 16px);
+    overscroll-behavior:none; -webkit-user-select:none; user-select:none;
+  }
+  h1{font-size:20px; font-weight:600; letter-spacing:.3px; margin:0 0 4px;}
+  p.sub{color:var(--muted); font-size:13px; margin:0 0 24px; text-align:center; max-width:520px;}
+  .card{
+    width:100%; max-width:560px; background:var(--panel); border:1px solid var(--border);
+    border-radius:16px; padding:20px 22px; backdrop-filter:blur(6px); margin-bottom:16px;
+  }
+  .transport{display:flex; align-items:center; gap:12px; margin-bottom:8px;}
+  button{
+    border:none; border-radius:10px; padding:10px 18px; font-size:14px; font-weight:600;
+    cursor:pointer; transition:transform .08s ease, opacity .2s;
+  }
+  button:active{transform:scale(.97);}
+  #startBtn{background:linear-gradient(135deg,var(--accent),#4aa8d8); color:#04121a;}
+  #stopBtn{background:#2a323e; color:var(--text);}
+  #stopBtn:disabled, #startBtn:disabled{opacity:.4; cursor:not-allowed;}
+  #status{font-size:12px; color:var(--muted); margin-left:auto;}
+  canvas{width:100%; height:90px; display:block; border-radius:10px; background:#05080c; margin-top:10px;}
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:16px 20px; margin-top:6px;}
+  .row{display:flex; flex-direction:column; gap:4px;}
+  .row label{font-size:12px; color:var(--muted); display:flex; justify-content:space-between;}
+  .row label span.val{color:var(--accent);}
+  input[type=range]{
+    -webkit-appearance:none; width:100%; height:4px; border-radius:2px;
+    background:#2a323e; outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
+    background:var(--accent2); cursor:pointer; box-shadow:0 0 6px var(--accent2);
+  }
+  .section-title{font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin:18px 0 8px;}
+  .warn{font-size:12px; color:#e0b45c; background:#2a2210; border:1px solid #4a3a12; border-radius:10px; padding:10px 12px; margin-top:14px;}
+  footer{color:var(--muted); font-size:11px; margin-top:8px; text-align:center; max-width:520px;}
+</style>
+</head>
+<body>
+
+  <h1>거리 소음 → 앰비언트 FX</h1>
+  <p class="sub">마이크로 들어오는 거리의 소음을 실시간으로 필터·잔향·딜레이·코러스 체인에 통과시켜 부드러운 앰비언트 사운드로 바꿔줍니다. 반드시 <b>이어폰</b>을 착용하세요 (스피커 사용 시 피드백 하울링 발생).</p>
+
+  <div class="card" id="installCard" style="display:none;">
+    <div class="transport">
+      <button id="installBtn" style="display:none; background:linear-gradient(135deg,var(--accent2),#8a5fc2); color:#0a0612;">⤓ 홈 화면에 설치</button>
+      <span id="installHint" style="font-size:12px; color:var(--muted); display:none;"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="transport">
+      <button id="startBtn">▶ 시작</button>
+      <button id="stopBtn" disabled>■ 정지</button>
+      <span id="status">마이크 대기 중</span>
+    </div>
+    <canvas id="viz" width="1000" height="180"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="section-title">톤 / 게이트</div>
+    <div class="grid">
+      <div class="row"><label>저역 컷 (럼블 제거) <span class="val" id="v-hp">80 Hz</span></label>
+        <input type="range" id="hp" min="20" max="400" value="80"></div>
+      <div class="row"><label>먹먹함 (로우패스) <span class="val" id="v-lp">2200 Hz</span></label>
+        <input type="range" id="lp" min="200" max="8000" value="2200"></div>
+      <div class="row"><label>컴프레서 강도 <span class="val" id="v-comp">18 dB</span></label>
+        <input type="range" id="comp" min="0" max="40" value="18"></div>
+      <div class="row"><label>Dry/Wet 밸런스 <span class="val" id="v-mix">70%</span></label>
+        <input type="range" id="mix" min="0" max="100" value="70"></div>
+    </div>
+
+    <div class="section-title">공간감 (리버브)</div>
+    <div class="grid">
+      <div class="row"><label>리버브 크기(감쇠) <span class="val" id="v-rsize">3.2 s</span></label>
+        <input type="range" id="rsize" min="5" max="80" value="32"></div>
+      <div class="row"><label>리버브 양 <span class="val" id="v-rmix">55%</span></label>
+        <input type="range" id="rmix" min="0" max="100" value="55"></div>
+    </div>
+
+    <div class="section-title">에코 / 코러스</div>
+    <div class="grid">
+      <div class="row"><label>딜레이 타임 <span class="val" id="v-dtime">380 ms</span></label>
+        <input type="range" id="dtime" min="50" max="1200" value="380"></div>
+      <div class="row"><label>딜레이 피드백 <span class="val" id="v-dfb">35%</span></label>
+        <input type="range" id="dfb" min="0" max="90" value="35"></div>
+      <div class="row"><label>쉬머(코러스) 깊이 <span class="val" id="v-chdepth">40%</span></label>
+        <input type="range" id="chdepth" min="0" max="100" value="40"></div>
+      <div class="row"><label>마스터 볼륨 <span class="val" id="v-master">80%</span></label>
+        <input type="range" id="master" min="0" max="100" value="80"></div>
+    </div>
+
+    <div class="section-title">작곡 레이어 (앰비언트 코드 패드)</div>
+    <p style="font-size:11px;color:var(--muted);margin:-4px 0 10px;">Cmaj9 → Em7(add11) → Am9 → Fmaj7(#11) 진행을 천천히 순환하는 신스 패드입니다. 낮은 벨로시티 · 롱 어택/릴리즈로 크로스페이드되어 해결감보다 부유하는 느낌을 냅니다.</p>
+    <div class="grid">
+      <div class="row"><label>패드 볼륨 <span class="val" id="v-padvol">50%</span></label>
+        <input type="range" id="padvol" min="0" max="100" value="50"></div>
+      <div class="row"><label>벨로시티 <span class="val" id="v-padvel">100%</span></label>
+        <input type="range" id="padvel" min="20" max="200" value="100"></div>
+      <div class="row"><label>크로스페이드 <span class="val" id="v-padcross">5.0 s</span></label>
+        <input type="range" id="padcross" min="20" max="100" value="50"></div>
+      <div class="row"><label>코드 진행 속도 <span class="val" id="v-padspeed">12 s 평균</span></label>
+        <input type="range" id="padspeed" min="4" max="30" value="12"></div>
+    </div>
+
+    <div class="warn" id="warnBox" style="display:none;"></div>
+  </div>
+
+  <footer>Web Audio API 기반 PWA · 홈 화면에 설치해 앱처럼 사용 가능 · 브라우저 마이크 권한만 허용하면 바로 동작합니다.</footer>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const startBtn = $('startBtn'), stopBtn = $('stopBtn'), statusEl = $('status'), warnBox = $('warnBox');
+  const vizCanvas = $('viz'), vizCtx = vizCanvas.getContext('2d');
+  const installCard = $('installCard'), installBtn = $('installBtn'), installHint = $('installHint');
+
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+  if (!isStandalone) {
+    if (isIOS) {
+      installCard.style.display = 'block';
+      installHint.style.display = 'inline';
+      installHint.textContent = '공유 버튼 → "홈 화면에 추가"를 눌러 앱처럼 설치할 수 있어요.';
+    } else {
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        installCard.style.display = 'block';
+        installBtn.style.display = 'inline-block';
+        installBtn.onclick = async () => {
+          installBtn.disabled = true;
+          e.prompt();
+          await e.userChoice;
+          installCard.style.display = 'none';
+        };
+      });
+    }
+  }
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
+  }
+
+  let audioCtx, stream, sourceNode, analyser, rafId;
+  let nodes = {};
+  let chordTimer = null;
+  let chordIndex = 0;
+  let activeChordNotes = [];
+  let padState = { velocity: 1.0, crossfade: 5.0, chordHold: 12 };
+
+  const CHORD_PROGRESSION = [
+    { name: 'Cmaj9',      notes: [60, 64, 67, 71, 74] },
+    { name: 'Em7(add11)', notes: [64, 67, 71, 74, 69] },
+    { name: 'Am9',        notes: [57, 60, 64, 67, 71] },
+    { name: 'Fmaj7(#11)', notes: [53, 57, 60, 64, 71] }
+  ];
+
+  function makeImpulse(ctx, seconds, decay) {
+    const rate = ctx.sampleRate;
+    const length = Math.max(1, Math.floor(rate * seconds));
+    const impulse = ctx.createBuffer(2, length, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = impulse.getChannelData(ch);
+      for (let i = 0; i < length; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+      }
+    }
+    return impulse;
+  }
+
+  function midiToFreq(note) {
+    return 440 * Math.pow(2, (note - 69) / 12);
+  }
+
+  function createPadNote(ctx, freq) {
+    const o1 = ctx.createOscillator(); o1.type = 'sine'; o1.frequency.value = freq; o1.detune.value = -5;
+    const o2 = ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = freq; o2.detune.value = 5;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = Math.min(freq * 5, 3500); lp.Q.value = 0.3;
+    const noteGain = ctx.createGain(); noteGain.gain.value = 0;
+    o1.connect(lp); o2.connect(lp); lp.connect(noteGain);
+    o1.start(); o2.start();
+    return { gainNode: noteGain, stopAt: (time) => { o1.stop(time); o2.stop(time); } };
+  }
+
+  function playChord(ctx, chordBus, idx) {
+    const now = ctx.currentTime;
+    const fade = padState.crossfade;
+    const peak = 0.05 * padState.velocity;
+    const chord = CHORD_PROGRESSION[idx];
+
+    const newNotes = chord.notes.map((note) => {
+      const voice = createPadNote(ctx, midiToFreq(note));
+      voice.gainNode.connect(chordBus);
+      voice.gainNode.gain.setValueAtTime(0, now);
+      voice.gainNode.gain.linearRampToValueAtTime(peak, now + fade);
+      return voice;
+    });
+
+    activeChordNotes.forEach((voice) => {
+      voice.gainNode.gain.cancelScheduledValues(now);
+      voice.gainNode.gain.setValueAtTime(voice.gainNode.gain.value, now);
+      voice.gainNode.gain.linearRampToValueAtTime(0, now + fade);
+      voice.stopAt(now + fade + 0.5);
+    });
+
+    activeChordNotes = newNotes;
+  }
+
+  function scheduleNextChord(ctx, chordBus) {
+    const holdSeconds = padState.chordHold * (0.75 + Math.random() * 0.5); // ±25% around slider value
+    chordTimer = setTimeout(() => {
+      chordIndex = (chordIndex + 1) % CHORD_PROGRESSION.length;
+      playChord(ctx, chordBus, chordIndex);
+      scheduleNextChord(ctx, chordBus);
+    }, holdSeconds * 1000);
+  }
+
+  function startChordPad(ctx, chordBus) {
+    chordIndex = 0;
+    playChord(ctx, chordBus, chordIndex);
+    scheduleNextChord(ctx, chordBus);
+  }
+
+  function stopChordPad(ctx) {
+    if (chordTimer) clearTimeout(chordTimer);
+    chordTimer = null;
+    const now = ctx.currentTime;
+    activeChordNotes.forEach((voice) => { try { voice.stopAt(now); } catch (e) {} });
+    activeChordNotes = [];
+  }
+
+  function buildGraph() {
+    const ctx = audioCtx;
+
+    const input = ctx.createGain();
+    const highpass = ctx.createBiquadFilter(); highpass.type = 'highpass';
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.attack.value = 0.01; compressor.release.value = 0.25; compressor.ratio.value = 6; compressor.knee.value = 12;
+
+    const dryGain = ctx.createGain();
+    const wetGain = ctx.createGain();
+
+    // FX chain: lowpass ("muffle") -> chorus (dual modulated delay) -> feedback delay -> reverb (convolver)
+    const lowpass = ctx.createBiquadFilter(); lowpass.type = 'lowpass';
+
+    // Chorus: two short delay lines modulated by slow LFOs, summed
+    const chDelayA = ctx.createDelay(0.05); chDelayA.delayTime.value = 0.012;
+    const chDelayB = ctx.createDelay(0.05); chDelayB.delayTime.value = 0.018;
+    const chGainA = ctx.createGain(); chGainA.gain.value = 0.5;
+    const chGainB = ctx.createGain(); chGainB.gain.value = 0.5;
+    const chDepthGainA = ctx.createGain(); chDepthGainA.gain.value = 0.002;
+    const chDepthGainB = ctx.createGain(); chDepthGainB.gain.value = 0.002;
+    const lfoA = ctx.createOscillator(); lfoA.frequency.value = 0.13;
+    const lfoB = ctx.createOscillator(); lfoB.frequency.value = 0.19;
+    lfoA.connect(chDepthGainA); chDepthGainA.connect(chDelayA.delayTime);
+    lfoB.connect(chDepthGainB); chDepthGainB.connect(chDelayB.delayTime);
+    lfoA.start(); lfoB.start();
+
+    const chorusSum = ctx.createGain();
+
+    // Feedback delay (echo)
+    const echoDelay = ctx.createDelay(2.0); echoDelay.delayTime.value = 0.38;
+    const echoFeedback = ctx.createGain(); echoFeedback.gain.value = 0.35;
+    const echoDamp = ctx.createBiquadFilter(); echoDamp.type = 'lowpass'; echoDamp.frequency.value = 4000;
+
+    // Reverb
+    const convolver = ctx.createConvolver();
+    convolver.buffer = makeImpulse(ctx, 3.2, 2.2);
+    const reverbMixGain = ctx.createGain(); reverbMixGain.gain.value = 0.55;
+
+    const fxOutGain = ctx.createGain();
+    const master = ctx.createGain(); master.gain.value = 0.8;
+
+    analyser = ctx.createAnalyser(); analyser.fftSize = 512;
+
+    // Routing
+    input.connect(highpass);
+    highpass.connect(compressor);
+
+    compressor.connect(dryGain);
+    dryGain.connect(master);
+
+    const chordBus = ctx.createGain(); chordBus.gain.value = 0.5;
+    chordBus.connect(master);
+
+    compressor.connect(lowpass);
+    lowpass.connect(chDelayA); lowpass.connect(chDelayB);
+    chDelayA.connect(chGainA); chDelayB.connect(chGainB);
+    chGainA.connect(chorusSum); chGainB.connect(chorusSum);
+    lowpass.connect(chorusSum); // blend some dry-fx signal into chorus sum too
+
+    chorusSum.connect(echoDelay);
+    echoDelay.connect(echoDamp);
+    echoDamp.connect(echoFeedback);
+    echoFeedback.connect(echoDelay); // feedback loop
+    echoDamp.connect(convolver);
+
+    convolver.connect(reverbMixGain);
+    echoDamp.connect(fxOutGain); // some direct echo signal without reverb
+    reverbMixGain.connect(fxOutGain);
+
+    fxOutGain.connect(wetGain);
+    wetGain.connect(master);
+
+    master.connect(analyser);
+    analyser.connect(ctx.destination);
+
+    nodes = {
+      input, highpass, compressor, dryGain, wetGain, lowpass,
+      echoDelay, echoFeedback, echoDamp, convolver, reverbMixGain, fxOutGain, master, chordBus
+    };
+    return input;
+  }
+
+  function refreshImpulse() {
+    const seconds = parseFloat($('rsize').value) / 10;
+    nodes.convolver.buffer = makeImpulse(audioCtx, seconds, 2.2);
+  }
+
+  function wireUI() {
+    $('hp').oninput = e => { nodes.highpass.frequency.value = +e.target.value; $('v-hp').textContent = e.target.value + ' Hz'; };
+    $('lp').oninput = e => { nodes.lowpass.frequency.value = +e.target.value; $('v-lp').textContent = e.target.value + ' Hz'; };
+    $('comp').oninput = e => { nodes.compressor.threshold.value = -(+e.target.value); $('v-comp').textContent = e.target.value + ' dB'; };
+    $('mix').oninput = e => {
+      const w = (+e.target.value) / 100;
+      nodes.dryGain.gain.value = 1 - w; nodes.wetGain.gain.value = w;
+      $('v-mix').textContent = e.target.value + '%';
+    };
+    $('rsize').oninput = e => { $('v-rsize').textContent = (e.target.value/10).toFixed(1) + ' s'; if (audioCtx) refreshImpulse(); };
+    $('rmix').oninput = e => { nodes.reverbMixGain.gain.value = (+e.target.value)/100; $('v-rmix').textContent = e.target.value + '%'; };
+    $('dtime').oninput = e => { nodes.echoDelay.delayTime.value = (+e.target.value)/1000; $('v-dtime').textContent = e.target.value + ' ms'; };
+    $('dfb').oninput = e => { nodes.echoFeedback.gain.value = (+e.target.value)/100; $('v-dfb').textContent = e.target.value + '%'; };
+    $('master').oninput = e => { nodes.master.gain.value = (+e.target.value)/100; $('v-master').textContent = e.target.value + '%'; };
+    $('chdepth').oninput = e => { $('v-chdepth').textContent = e.target.value + '%'; };
+    $('padvol').oninput = e => { nodes.chordBus.gain.value = (+e.target.value) / 100; $('v-padvol').textContent = e.target.value + '%'; };
+    $('padvel').oninput = e => { padState.velocity = (+e.target.value) / 100; $('v-padvel').textContent = e.target.value + '%'; };
+    $('padcross').oninput = e => { padState.crossfade = (+e.target.value) / 10; $('v-padcross').textContent = (e.target.value/10).toFixed(1) + ' s'; };
+    $('padspeed').oninput = e => { padState.chordHold = +e.target.value; $('v-padspeed').textContent = e.target.value + ' s 평균'; };
+  }
+
+  function drawViz() {
+    const bufferLength = analyser.frequencyBinCount;
+    const data = new Uint8Array(bufferLength);
+    const w = vizCanvas.width, h = vizCanvas.height;
+    function loop() {
+      rafId = requestAnimationFrame(loop);
+      analyser.getByteFrequencyData(data);
+      vizCtx.fillStyle = '#05080c';
+      vizCtx.fillRect(0, 0, w, h);
+      const barW = w / bufferLength * 2.2;
+      let x = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        const v = data[i] / 255;
+        const barH = v * h;
+        const hue = 190 + v * 80;
+        vizCtx.fillStyle = `hsl(${hue}, 80%, ${55 + v*20}%)`;
+        vizCtx.fillRect(x, h - barH, barW, barH);
+        x += barW + 1;
+        if (x > w) break;
+      }
+    }
+    loop();
+  }
+
+  async function start() {
+    startBtn.disabled = true;
+    warnBox.style.display = 'none';
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      });
+      sourceNode = audioCtx.createMediaStreamSource(stream);
+      const inputNode = buildGraph();
+      sourceNode.connect(inputNode);
+      wireUI();
+      drawViz();
+      startChordPad(audioCtx, nodes.chordBus);
+      statusEl.textContent = '실행 중 · 이어폰 착용 권장';
+      stopBtn.disabled = false;
+    } catch (err) {
+      startBtn.disabled = false;
+      statusEl.textContent = '마이크 접근 실패';
+      warnBox.style.display = 'block';
+      warnBox.textContent = '마이크 권한을 허용했는지 확인하세요. 오류: ' + err.message;
+    }
+  }
+
+  function stop() {
+    if (rafId) cancelAnimationFrame(rafId);
+    if (audioCtx) stopChordPad(audioCtx);
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    if (audioCtx) audioCtx.close();
+    audioCtx = null;
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    statusEl.textContent = '정지됨';
+    vizCtx.fillStyle = '#05080c';
+    vizCtx.fillRect(0, 0, vizCanvas.width, vizCanvas.height);
+  }
+
+  startBtn.onclick = start;
+  stopBtn.onclick = stop;
+})();
+</script>
+</body>
+</html>

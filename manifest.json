@@ -1,0 +1,18 @@
+{
+  "name": "거리 소음 → 앰비언트 FX",
+  "short_name": "Ambient FX",
+  "description": "마이크로 들어오는 거리 소음을 실시간 필터·리버브·딜레이·코러스로 변환하는 앰비언트 사운드 앱",
+  "start_url": "./index.html",
+  "scope": "./",
+  "id": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0e14",
+  "theme_color": "#0b0e14",
+  "lang": "ko",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
