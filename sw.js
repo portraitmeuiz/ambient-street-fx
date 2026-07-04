@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ambient-fx-v3';
+const CACHE_NAME = 'ambient-fx-v4';
 const ASSETS = [
   './',
   './index.html',
